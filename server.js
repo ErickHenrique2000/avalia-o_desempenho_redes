@@ -4,47 +4,54 @@ const path = require('path');
 
 const server = dgram.createSocket('udp4');
 const videoPath = path.join(__dirname, 'test.mp4'); 
-const CHUNK_SIZE = 60 * 1024; 
-
-server.on('error', (err) => {
-  console.log(`Server error:\n${err.stack}`);
-  server.close();
-});
-
+const CHUNK_SIZE = 60 * 1024;
+let videoStream;
 server.on('message', (msg, rinfo) => {
-  console.log(`Received request from ${rinfo.address}:${rinfo.port}`);
-  
-  const videoStream = fs.createReadStream(videoPath, { highWaterMark: CHUNK_SIZE });
+  const message = msg.toString();
+  if (message === 'PAUSE') {
+    console.log('Servidor recebeu comando de PAUSE.');
+    videoStream.pause();
+  } else if (message === 'RESUME') {
+    console.log('Servidor recebeu comando de RESUME.');
+    videoStream.resume();
+  } else {
+    console.log(`Received request from ${rinfo.address}:${rinfo.port}`);
+    videoStream = fs.createReadStream(videoPath, { highWaterMark: CHUNK_SIZE });
+    
 
-  videoStream.on('data', (chunk) => {
-    server.send(chunk, 0, chunk.length, rinfo.port, rinfo.address, (err) => {
-      if (err) {
-        console.error('Error sending chunk:', err);
-      } else {
-        console.log('Chunk sent');
-      }
-    });
-  });
-
-  videoStream.on('end', () => {
-    console.log('Video file sent successfully');
-    server.send('', 0, 0, rinfo.port, rinfo.address, (err) => {
+    videoStream.on('data', (chunk) => {
+      server.send(chunk, 0, chunk.length, rinfo.port, rinfo.address, (err) => {
         if (err) {
-          console.error('Error sending chunk:', err);
+          console.error('Erro ao enviar chunk:', err);
         } else {
-          console.log('Chunk sent');
+          console.log('Chunk enviado');
         }
-      })
-  });
+      });
+    });
 
-  videoStream.on('error', (err) => {
-    console.error('Error reading video file:', err);
-  });
-});
+    videoStream.on('end', () => {
+      console.log('Arquivo de vídeo enviado com sucesso');
+      server.send('', 0, 0, rinfo.port, rinfo.address, (err) => {
+        if (err) {
+          console.error('Erro ao enviar chunk:', err);
+        } else {
+          console.log('Chunk enviado');
+        }
+      });
+    });
 
-server.on('listening', () => {
-  const address = server.address();
-  console.log(`Server listening on ${address.address}:${address.port}`);
+    videoStream.on('error', (err) => {
+      console.error('Erro ao ler arquivo de vídeo:', err);
+    });
+
+    server.on('pause', () => {
+      videoStream.pause();
+    });
+
+    server.on('resume', () => {
+      videoStream.resume();
+    });
+  }
 });
 
 server.bind(41234); 
