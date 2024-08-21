@@ -1,34 +1,74 @@
-const http = require('http');
+const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-const videoPath = path.join(__dirname, 'test.mp4'); // Substitua pelo nome do seu arquivo de vídeo
+const app = express();
+const videoPath = path.join(__dirname, 'test.mp4');
 const PORT = 3000;
 
-const server = http.createServer((req, res) => {
-  if (req.url === '/video') {
-    fs.stat(videoPath, (err, stats) => {
-      if (err) {
-        console.error('Error getting video file stats:', err);
-        res.writeHead(500, {'Content-Type': 'text/plain'});
-        res.end('Internal Server Error');
+let isPaused = false;
+let videoStream;
+
+app.get('/video', (req, res) => {
+    const command = req.query.command;
+
+    if (command === 'pause') {
+        console.log('Servidor recebendo comando de pausa.');
+        isPaused = true;
+        res.status(200).send('Pausado');
         return;
-      }
+    }
 
-      res.writeHead(200, {
-        'Content-Type': 'video/mp4',
-        'Content-Length': stats.size
-      });
+    if (command === 'resume') {
+        console.log('Servidor recebendo comando de retomada.');
+        isPaused = false;
+        if (videoStream) {
+            videoStream.resume();
+        }
+        res.status(200).send('Retomado');
+        return;
+    }
 
-      const videoStream = fs.createReadStream(videoPath);
-      videoStream.pipe(res);
+    fs.stat(videoPath, (err, stats) => {
+        if (err) {
+            console.error('Erro ao obter informações do arquivo de vídeo:', err);
+            res.status(500).send('Erro interno do servidor');
+            return;
+        }
+
+        res.writeHead(200, {
+            'Content-Type': 'video/mp4',
+            'Content-Length': stats.size
+        });
+
+        videoStream = fs.createReadStream(videoPath);
+
+        videoStream.on('data', (chunk) => {
+            if (isPaused) {
+                videoStream.pause();
+                console.log('Stream pausado.');
+            } else {
+                const canContinue = res.write(chunk);
+                if (!canContinue) {
+                    videoStream.pause();
+                    res.once('drain', () => {
+                        if (!isPaused) videoStream.resume();
+                    });
+                }
+            }
+        });
+
+        videoStream.on('end', () => {
+            res.end();
+            console.log('Transmissão concluída.');
+        });
+
+        req.on('close', () => {
+            videoStream.destroy();
+        });
     });
-  } else {
-    res.writeHead(404, {'Content-Type': 'text/plain'});
-    res.end('Not Found');
-  }
 });
 
-server.listen(PORT, () => {
-  console.log(`HTTP server running on http://localhost:${PORT}`);
+app.listen(PORT, () => {
+    console.log(`Servidor HTTP rodando em http://localhost:${PORT}`);
 });
